@@ -1,0 +1,127 @@
+---
+title: "ESM 244: Assignment 1, Task 1"
+author: "Sophia Lecuona"
+format: 
+  html:
+    code-fold: show
+    toc: true
+    number-sections: true
+    embed-resources: true
+    self-contained-math: true
+editor: visual
+theme: minty
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+# An analysis of the Amphibian Abundance Sierra Lakes Inventory Project: Non-Native fish and community composition of lakes and ponds in the Sierra Nevada, California
+
+[![Mountain yellow-legged frog. Credit: National Park Service.](images/MYLFAdultInSEKI_Closeup_BCzibesz2004.jpeg){fig-align="center"}](https://www.nps.gov/seki/learn/nature/mountain-yellow-legged-frogs.htm)
+
+Knapp, R.A., C. Pavelka, E.E. Hegeman, and T.C. Smith. 2020. The Sierra Lakes Inventory Project: Non-Native fish and community composition of lakes and ponds in the Sierra Nevada, California ver 2. Environmental Data Initiative. <https://doi.org/10.6073/pasta/d835832d7fd00d9e4466e44eea87fab3>
+
+Metadata & info: <https://portal.edirepository.org/nis/metadataviewer?packageid=edi.577.2>
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(janitor)
+library(ggplot2)
+library(patchwork)
+library(lubridate)
+library(tsibble)
+library(ggsci)
+library(extrafont)
+```
+
+## First, we want to see the total mountain yellow-legged frog (*Rana muscosa*) count each year across all water bodies, by life stage excluding ‘EggMass’.
+
+### Read in the data
+
+```{r}
+sierra_data <- read_csv(here('data/sierra_amphibians.csv')) %>%
+  clean_names()
+```
+
+### Wrangle the data
+
+```{r}
+ramu <- sierra_data %>%
+  select(lake_id, survey_date, amphibian_species, amphibian_life_stage, amphibian_number) %>%
+  filter(amphibian_species == 'RAMU') %>%
+  filter(amphibian_life_stage != 'EggMass')%>%
+  mutate(survey_date = lubridate::mdy(survey_date)) %>%
+  mutate(year = lubridate::year(survey_date))
+
+ramu_by_lifecycle <- ramu %>%
+  group_by(year, amphibian_life_stage) %>%
+  summarize(amphibian_number = sum(amphibian_number))
+```
+
+### Visualize it!
+
+```{r}
+#| fig-cap: "The abundance of mountain yellow-legged frog (*Rana muscosa*) from 1995 to 2002 in all water bodies. Years 1988 and 1989 do not have associated data. There is an observed increase in individuals in 2002."
+#| label: fig-plot1
+lifestage_gg <- ggplot(ramu_by_lifecycle, aes(x = year, y = amphibian_number, fill = amphibian_life_stage)) +
+  geom_col() +
+  theme_minimal() +
+  scale_fill_npg() +
+  theme(axis.title = element_blank(),
+        plot.caption = element_text(hjust = 0.5)) +
+  labs(fill = "Life Stage") +
+  theme(text=element_text(size=12, family="serif"))
+lifestage_gg
+```
+
+## Next, let's observe the total adult and subadult endangered mountain yellow-legged frogs (*Rana muscosa*) observed in the 5 lakes with the greatest total observed counts.
+
+### Wrangle & reformat data
+
+```{r}
+ramu_lakes <- ramu %>%
+  filter(amphibian_life_stage != "Tadpole")
+
+# add in the word lake so you can reorder them (reformatting)
+word_to_add <- "Lake"
+
+# Add the word to the entire column of lake_id
+ramu_lakes$lake_id <- paste(word_to_add, ramu_lakes$lake_id, sep = " ")
+
+# Group
+grouped_ramu_lakes <- ramu_lakes %>%
+  select(lake_id, amphibian_number) %>%
+  group_by(lake_id) %>%
+  summarize(total_amphibians = sum(amphibian_number))
+
+top_5_lakes <- grouped_ramu_lakes %>%
+  filter(lake_id %in% c("Lake 50183" , "Lake 10223", "Lake 10329", "Lake 20196", "Lake 10225"))
+```
+
+### Let's visualize it!
+
+```{r}
+#| fig-cap: "Combined adult and subadult endangered mountain yellow-legged frogs (*Rana muscosa*) observed in lakes with the greatest total observed counts."
+#| label: fig-plot2
+lakes_gg <- ggplot(top_5_lakes, aes(fct_reorder(lake_id, total_amphibians), total_amphibians, fill = lake_id)) +
+  geom_col() +
+  theme_minimal() +
+  scale_x_discrete(labels = NULL, breaks = NULL) +
+  theme(axis.title = element_blank(),
+        plot.caption = element_text(hjust = 0.5)) +
+  scale_fill_npg(palette = c("nrc")) +
+  labs(fill = "Sierra Lakes") +
+  theme(text=element_text(size=12, family="serif"))
+lakes_gg
+```
+
+### Finally, lets combine the two plots for a cohesive look.
+
+```{r}
+#| fig-cap: "**Panel A**:  Number of total mountain yellow-legged frog (*Rana muscosa*) each year across all water bodies, by life stage.  **Panel B**: Counts of combined adult and subadult endangered mountain yellow-legged frogs (*Rana muscosa*) observed in the 5 lakes with the greatest total observed counts."
+#| label: fig-rana-muscosa
+combined_plots <- (lifestage_gg / lakes_gg) + plot_annotation(tag_levels = "A")
+combined_plots
+```

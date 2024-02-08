@@ -1,0 +1,255 @@
+---
+title: "ESM 244: Assignment 1, Task 2"
+author: "Sophia Lecuona"
+format:
+  html:
+    code-fold: show
+    toc: true
+    number-sections: true
+    embed-resources: true
+editor: visual
+theme: minty
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+# Willamette Falls Fish Passage Time Series Summary (2001 - 2010)
+
+### Overview
+
+[![Pacific Salmon and Steelhead. Credit: NOAA Fisheries.](images/640x427-Salmon-Coho-NOAAFisheries.jpeg){fig-align="center"}](https://www.fisheries.noaa.gov/species/pacific-salmon-and-steelhead)
+
+[![Willamette Falls Fish Ladder Project Area. The green line represents Leg 1, blue is Leg 2, red is Leg 3 of the Oregon Department of Fish and Wildlife Fish Ladder. Credit: Tim Shibahara – Fish Biologist; Portland General Electric.](images/willamette_falls_hydroelectric_project_area.jpg){fig-align="center"}](https://www.dfw.state.or.us/fish/species/docs/Shibahara%20%20PGE%20Willamette%20North%20Fork.pdf)
+
+Willamette Falls is a natural water fall in Oregon, USA. The Oregon Department of Fish and Wildlife worked to create fish ladders for a variety of fish species, as shown above. There are three "Legs", or entrances, for the fish passage. There, counts of Chinook, Jack Chinook, Steelhead, Wild Steelhead, Sockeye, Coho Salmon, Jack Coho, Shad, Lamprey, Bull Trout, Chum Salmon, and Pink Salmon were taken daily at the Willamette Fish Passage project area.
+
+Using data collected from the Columbia Basin Research organization, this report focuses on Coho, Jack Coho, and Steelhead during the period spanning from January 1st, 2001, to December 31st, 2010. In order to delve into the seasonality of these fish species, a comprehensive examination was undertaken, employing a time series approach, season plot visualization, and an annual count analysis.
+
+Columbia Basin Research, Oregon Department of Fish & Wildlife, Washington Department of Fish & Wildlife, U.S. Army Corps of Engineers, NWD, Chelan, Douglas, and Grant County PUDs, Yakima Klickitat Fisheries Project, & Colville Tribes Fish & Wildlife (OBMEP),. (unpublished). DART Adult Passage Counts Graphics & Text: Data Available in DART for Willamette Falls / Sullivan Project, Willamette River \[Dataset\]. In *Columbia River DART (Data Access in Real Time)*. <https://www.cbr.washington.edu/dart/query/adult_graph_text>
+
+The data for this analysis was shared by and accessed from [Columbia River DART](https://www.cbr.washington.edu/dart/query/adult_graph_text) (Data Access in Real Time), on January 27, 2023.
+
+Metadata & info:[ ](https://www.cbr.washington.edu/dart/wrapper?type=html&fname=metainventory_WFF.html)[https://www.cbr.washington.edu/dart/wrappertype=html&fname=metainventory_WFF.html](https://www.cbr.washington.edu/dart/wrapper?type=html&fname=metainventory_WFF.html)
+
+## Part 1: An original time series of the Willamette Falls fish passage
+
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(janitor)
+library(ggplot2)
+library(patchwork)
+library(lubridate)
+library(tsibble)
+library(ggsci)
+library(feasts)
+library(fable)
+library(wesanderson)
+library(extrafont)
+library(stringr)
+```
+
+### Wrangle the data
+
+```{r}
+fish_passage <- read_csv(here('data/willamette_fish_passage.csv')) %>%
+  clean_names()
+
+clean_date <- fish_passage %>%
+  mutate(date = lubridate::mdy(date)) %>%
+  as_tsibble(key = NULL, ### if we had multiple sites, key by site
+             index = date) %>%
+  select(date, coho, jack_coho, steelhead) %>%
+  pivot_longer(cols=c('coho', 'jack_coho', "steelhead"),
+                    names_to='species',
+                    values_to='count') %>%
+  replace_na(list(count = 0)) %>%
+  mutate(species = str_replace(species, pattern = '_', replacement = ' ')) %>%
+  mutate(species = str_replace(species, 'coho', 'Coho')) %>%
+  mutate(species = str_replace(str_to_title(species), 'jack_coho', 'Jack Coho')) %>%
+  mutate(species = str_replace(species, 'steelhead', 'Steelhead'))
+```
+
+### Visualize the time series
+
+```{r}
+#| fig-cap: "**Temporal Trend of Fish Abundance.** Daily abundance of Coho, Jack Coho, and Steelhead at the Willamette fish passage between January 01, 2001 to December 31st, 2010."
+#| label: fig-plot1
+ 
+# wanted to use the same palette as my seasonplot, 
+# however the colors looked too harsh when they are not continuous.  
+# So I looked for the closest colors I could find to make it cohesive.
+
+ggplot(data = clean_date, aes(x = date, y = count, color = species)) +
+  geom_line() +
+  theme_minimal() +
+  scale_color_manual(values = c("Coho" = wes_palette("Darjeeling2")[3],
+                                "Jack Coho" = wes_palette("Darjeeling2")[2],
+                                "Steelhead" = wes_palette("Darjeeling2")[1])) +
+  labs(color = "Species",
+       x = " ",
+       y = "Abundance") +
+  theme(text=element_text(size=12, family="serif"))
+```
+
+-   @fig-plot1 depicts Coho Salmon with a possible increasing overall trend. Fall 2009 and Fall 2010 have substantial surges in abundance, reaching 1000 and 1250 counts, respectively.
+-   The abundance of Jack Coho has an overall neutral trend, with relatively smaller abundance than Coho and Steelhead. Abundance increases seasonally in the fall, in which Fall 2008 has the largest counts.
+-   There seems to be no overall trend for Steelhead, as the peaks tend to be between 300-500 counts. Each peak does seem seasonal, rising in late spring and early summer each year.
+
+## A season plot for coho, jack coho, and steelhead species
+
+### Index by month
+
+```{r}
+species_by_month <- clean_date %>%
+  group_by(species) %>%
+  index_by(yr_mo = ~yearmonth(.)) %>% 
+  summarize(count_sum = sum(count, na.rm = TRUE)) %>%
+  ungroup() ### just like after group_by()
+```
+
+### Visualize using a season plot
+
+```{r}
+#| fig-cap: "**Seasonal Distribution of Fish Species Abundance.** Distribution of abundance for the fish species Coho, Jack Coho, and Steelhead by month between January 01, 2001 to December 31st, 2010. Lines depict the year of observation."
+#| label: fig-plot2
+
+species_seasonplot <- species_by_month %>%
+  group_by(species) %>%
+  gg_season(y = count_sum, pal = wes_palette("AsteroidCity3", 21, type = "continuous")) +
+  theme_light() +
+  labs(title = " ",
+       x = " ",
+       y = "Abundance") +
+  theme(text=element_text(size=12, family="serif"))
+species_seasonplot
+```
+
+@fig-plot2 exemplifies the seasons that Coho, Jack Coho, and Steelhead cross the fish passage at Willamette Falls.
+
+-   It appears as though Coho and Jack Coho are present in higher counts between August - November, with peaks in September. Coho are much more abundant, which can be seen when comparing the peak abundance in 2010 between both species. Coho had about 10 times more observations than Jack Coho (15,000 and 1,500, respectively). Abundance of both species generally increases over time, though Jack Coho had its top abundance year in 2007.
+
+-   Steelhead passes through Willamette Falls between early January to late July, at times that Coho and Jack Coho are not observed. Steelhead also does not follow the overall increasing trend over time that may be observed in the other two species, though there may be a possible decrease in abundance in later years. May is the peak month of observation, with counts reaching 12,500 in about 2003.
+
+## Annual counts by species
+
+### Index by year
+
+```{r}
+species_by_year <- clean_date %>%
+  group_by(species) %>%
+  index_by(yr_mo = ~year(.)) %>% 
+  summarize(count_sum = sum(count, na.rm = TRUE)) %>%
+  ungroup()
+```
+
+### Visualize!
+
+```{r}
+#| fig-cap: "**Annual Abundance Trends of Fish Species.** Annual species counts of Coho, Jack Coho, and Steelhead from January 01, 2001, to December 31st, 2010."
+#| label: fig-plot3
+
+species_annual <- ggplot(species_by_year, aes(x = as.numeric(yr_mo), y = count_sum, color = species)) +
+  geom_line() +
+  theme_minimal() +
+  scale_color_manual(values = c("Coho" = wes_palette("Darjeeling2")[3],
+                                "Jack Coho" = wes_palette("Darjeeling2")[2],
+                                "Steelhead" = wes_palette("Darjeeling2")[6])) +
+  labs(color = "Species",
+       x = " ",
+       y = "Abundance") +
+  scale_x_continuous(breaks = ~ axisTicks(., log = FALSE)) +
+  theme(text=element_text(size=12, family="serif"))
+species_annual
+```
+
+@fig-plot3 presents the overall annual counts of each species from the years 2001 to 2010.
+
+-   Steelhead appears to be the overall most abundant species during this time frame, containing an impressive 50,000 individuals in 2002, though its observations decrease until 2009. In 2010, there is a sudden spike in Steelhead abundance, corresponding with a quick drop in Coho counts.
+
+-   Coho increases over time, in which it seems to have a cyclical increase in individuals every three years (2003, 2006, 2009). In 2009 it even surpasses the Steelhead abundance, but quickly drops in 2010. There is an overall increasing trend.
+
+-   Jack Coho is the least relatively abundant species, with a steady annual count. In 2002 and 2008 there are about 400 individuals, which is the highest seen during this decade. The increases in abundance do seem to increase around the same years as Coho, which indicates there could be an external factor influencing their increase during those years.
+
+## BONUS: Let's try forecasting using Holt-Winters exponential smoothing!
+
+### *Warning: these graphs are very rough!*
+
+### For Coho: 
+
+```{r}
+# Create the model:
+coho_fit <- species_by_month %>%
+  # filter_index('2000-01' ~ .) %>% 
+    ### try different date windows since trend seems to change 
+  filter(species == 'Coho') %>%
+  group_by_key(species) %>%
+  model(
+    ets = ETS(count_sum ~ season(method = "A") + trend(method = "A"))
+  )
+
+# Forecast using the model 5 years into the future:
+coho_forecast <- coho_fit %>% 
+  forecast(h = "5 years")
+
+# Plot just the forecasted values (with 80 & 95% CIs):
+coho_forecast %>% 
+  autoplot()
+
+# Or plot it added to the original data:
+coho_forecast %>% 
+  autoplot(species_by_month)
+```
+### For Steelhead:
+
+```{r}
+# Create the model:
+st_fit <- species_by_month %>%
+  # filter_index('2000-01' ~ .) %>% 
+    ### try different date windows since trend seems to change 
+  filter(species == 'Steelhead') %>%
+  group_by_key(species) %>%
+  model(
+    ets = ETS(count_sum ~ season(method = "A") + trend(method = "A"))
+  )
+
+# Forecast using the model 5 years into the future:
+st_forecast <- st_fit %>% 
+  forecast(h = "5 years")
+
+# Plot just the forecasted values (with 80 & 95% CIs):
+st_forecast %>% 
+  autoplot()
+
+# Or plot it added to the original data:
+st_forecast %>% 
+  autoplot(species_by_month)
+```
+### For Jack Coho:
+
+```{r}
+# Create the model:
+j_fit <- species_by_month %>%
+  # filter_index('2000-01' ~ .) %>% 
+    ### try different date windows since trend seems to change 
+  filter(species == 'Jack Coho') %>%
+  group_by_key(species) %>%
+  model(
+    ets = ETS(count_sum ~ season(method = "A") + trend(method = "A"))
+  )
+
+# Forecast using the model 5 years into the future:
+j_forecast <- j_fit %>% 
+  forecast(h = "5 years")
+
+# Plot just the forecasted values (with 80 & 95% CIs):
+j_forecast %>% 
+  autoplot()
+
+# Or plot it added to the original data:
+j_forecast %>% 
+  autoplot(species_by_month)
+```
